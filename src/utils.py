@@ -17,12 +17,11 @@ def extract_pdf_text(path: Path | str) -> list[str]:
 
     pdf_doc = pdfopen(pdfpath)
     try:
-        return [page.get_text(sort=True) for page in pdf_doc]
+        return [str(page.get_text(sort=True)) for page in pdf_doc]
     except Exception as e:
         raise ValueError(f"Failed to extract text from PDF '{path}': {e}") from e
     finally:
         pdf_doc.close()
 
 if __name__ == "__main__":
-    for page in extract_pdf_text("./uploads/test_tender.pdf"):
-        print(page)
+    ...
