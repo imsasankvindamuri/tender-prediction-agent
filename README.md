@@ -73,7 +73,7 @@ capabilities before introducing Retrieval-Augmented Generation (RAG).
 
 ## Backend
 
-* Python 3.11+
+* Python 3.11 OR Python 3.12
 * Streamlit
 * LangChain
 * Groq API
