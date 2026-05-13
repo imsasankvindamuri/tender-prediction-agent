@@ -354,7 +354,7 @@ Return the output in structured markdown.
 # ── Session state init ────────────────────────────────────────────────────────
 
 if "messages" not in st.session_state:
-    st.session_state.messages: list[BaseMessage] = [
+    st.session_state.messages = [
         SystemMessage(content=SYSTEM_PROMPT)
     ]
 if "chat_history" not in st.session_state:
