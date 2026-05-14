@@ -64,9 +64,27 @@ class TenderRAG:
                         "filename",
                         "unknown"
                     ),
-                    "page": page_num
+                    "page": page_num,
+                    "type": "text"
                 }
             })
+
+        # Ingest Tables separately to preserve structure
+        for i, table in enumerate(extraction_result.get("tables", [])):
+            if "markdown" in table:
+                documents.append({
+                    "page_content": f"Table Caption: {table.get('caption', 'None')}\n\n{table['markdown']}",
+                    "metadata": {
+                        "tender_id": tender_id,
+                        "chunk_id": f"table_{i}",
+                        "source": extraction_result["metadata"].get(
+                            "filename",
+                            "unknown"
+                        ),
+                        "page": table.get("page") or "N/A",
+                        "type": "table"
+                    }
+                })
 
         # IMPORTANT:
         # No persistence for now.
@@ -78,7 +96,7 @@ class TenderRAG:
             collection_name=f"tender_{tender_id}"
         )
 
-        st.success(f"✓ Ingested {len(chunks)} chunks")
+        st.success(f"✓ Ingested {len(chunks)} text chunks and {len(extraction_result.get('tables', []))} tables")
 
     def retrieve(self, query: str, k: int = 8):
         """Retrieve diverse relevant chunks"""
