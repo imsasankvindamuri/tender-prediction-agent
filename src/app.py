@@ -1,4 +1,3 @@
-import streamlit as st
 from dotenv import load_dotenv
 
 from ui.styles import apply_page_config_and_styles

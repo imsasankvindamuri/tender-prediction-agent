@@ -10,38 +10,88 @@ class TenderAnalyzer:
         self.rag = rag
         self.llm = get_llm()
 
-    def _query_section(self, section_name: str, search_queries: list[str], instructions: str) -> str:
+    def _query_section(
+        self,
+        section_name: str,
+        search_queries: list[str],
+        instructions: str
+    ) -> str:
         """Query RAG for a specific section"""
+
         all_context = []
         citations = []
+        seen_chunks = set()
 
         for query in search_queries:
-            docs = self.rag.retrieve(query, k=5)
-            for doc in docs:
-                page = doc.metadata.get("page", "N/A")
-                all_context.append(doc.page_content)
-                citations.append(f"Page {page} (Chunk {doc.metadata.get('chunk_id')})")
 
-        context = "\n\n".join(all_context[:8])  # limit context
+            docs = self.rag.retrieve(query, k=5)
+
+            st.write(f"### Retrieval Query: {query}")
+
+            for doc in docs:
+
+                chunk_id = doc.metadata.get("chunk_id")
+
+                # Deduplicate repeated chunks
+                if chunk_id in seen_chunks:
+                    continue
+
+                seen_chunks.add(chunk_id)
+
+                page = doc.metadata.get("page", "N/A")
+
+                citations.append(
+                    f"Page {page} (Chunk {chunk_id})"
+                )
+
+                all_context.append(doc.page_content)
+
+                # Retrieval logging
+                st.code(
+                    f"""
+    CHUNK: {chunk_id}
+    PAGE: {page}
+
+    {doc.page_content[:400]}
+                    """
+                )
+
+        # Keep MORE context after deduplication
+        context = "\n\n".join(all_context[:15])
 
         prompt = f"""
-You are an expert tender analyst. Use ONLY the provided context.
+    You are an expert tender analyst.
 
-**Section:** {section_name}
+    Use ONLY the provided context.
 
-**Instructions:** {instructions}
+    SECTION:
+    {section_name}
 
-**Context:**
-{context}
+    INSTRUCTIONS:
+    {instructions}
 
-Answer concisely and accurately.
-If information is not present, say "Not explicitly mentioned".
+    CONTEXT:
+    {context}
 
-At the end, add:
-**Citations:** {", ".join(set(citations[:6]))}
-"""
+    RULES:
+    - Do NOT hallucinate.
+    - If information is absent, say:
+      "Not explicitly mentioned."
+    - Prefer exact values and dates.
+    - Prefer concrete numbers over summaries.
 
-        response = self.llm.invoke([HumanMessage(content=prompt)])
+    Return concise structured markdown.
+
+    At the end include:
+
+    Citations:
+    {", ".join(sorted(set(citations)))}
+    """
+
+        response = self.llm.invoke([
+            HumanMessage(content=prompt)
+        ])
+
         return response.content.strip()
 
     def generate_full_analysis(self) -> str:
