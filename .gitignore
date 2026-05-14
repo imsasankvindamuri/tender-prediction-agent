@@ -48,3 +48,6 @@ faiss_index/
 # Temporary uploaded PDFs
 uploads/
 temp/
+
+# Personal notes
+docs/manifest.md
