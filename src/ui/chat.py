@@ -43,7 +43,7 @@ def render_chat_area():
 
 def handle_user_input(user_input):
     from langchain_core.messages import HumanMessage, AIMessage
-    from ui.sidebar import get_llm   # reuse cached LLM
+    from core.llm import get_llm   # reuse cached LLM
 
     st.session_state.chat_history.append({"role": "user", "content": user_input})
     st.session_state.messages.append(HumanMessage(content=user_input))

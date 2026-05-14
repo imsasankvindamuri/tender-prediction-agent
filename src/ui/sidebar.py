@@ -1,15 +1,15 @@
 # src/ui/sidebar.py
+import traceback
 import streamlit as st
 import tempfile
 import os
-from utils import extract_pdf_text
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
-from .styles import INITIAL_ANALYSIS_PROMPT, MODEL, TEMP
+from core.config import INITIAL_ANALYSIS_PROMPT, MODEL, TEMP, SYSTEM_PROMPT
+from core.utils import reset_session
 
 
 def render_sidebar():
-    from .styles import SYSTEM_PROMPT   # avoid circular import
 
     with st.sidebar:
         st.markdown('<div class="brand-title">Tender<br>Analyst</div>', unsafe_allow_html=True)
@@ -53,62 +53,75 @@ def render_sidebar():
             unsafe_allow_html=True,
         )
 
-
 def analyze_tender(uploaded_file):
-    llm = get_llm()   # we'll define this below or import
-
-    with st.spinner("Extracting and analyzing…"):
+    """Main analysis pipeline: Extract → Ingest → Structured Analysis"""
+    
+    # === 1. Extraction with Docling ===
+    with st.spinner("Extracting document with Docling..."):
         try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                tmp.write(uploaded_file.read())
-                tmp_path = tmp.name
+            from core.extract import extract_tender_document
+            extraction_result = extract_tender_document(uploaded_file)
 
-            tender_pages = extract_pdf_text(tmp_path)
-            os.unlink(tmp_path)
+            if not extraction_result.get("success"):
+                st.error(f"Extraction failed: {extraction_result.get('error')}")
+                return
 
-            tender_text = "\n\n".join(tender_pages)
+            st.success(f"Extracted {extraction_result['metadata']['page_count']} pages "
+                      f"({extraction_result['metadata']['table_count']} tables)")
 
-            # Reset conversation
-            from ui.styles import SYSTEM_PROMPT, INITIAL_ANALYSIS_PROMPT
-            from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+        except Exception as e:
+            st.error(f"Extraction error: {e}")
+            return
 
-            st.session_state.messages = [SystemMessage(content=SYSTEM_PROMPT)]
-            st.session_state.chat_history = []
+    # === 2. RAG Ingestion ===
+    with st.spinner("Building vector store..."):
+        try:
+            from core.rag import TenderRAG
+            
+            if "rag" not in st.session_state:
+                st.session_state.rag = TenderRAG()
 
-            initial_msg = INITIAL_ANALYSIS_PROMPT.format(tender_text=tender_text)
-            st.session_state.messages.append(HumanMessage(content=initial_msg))
-
-            full_response = ""
-            for chunk in llm.stream(st.session_state.messages):
-                full_response += str(chunk.content or "")
-
-            st.session_state.messages.append(AIMessage(content=full_response))
-            st.session_state.chat_history.append({
-                "role": "assistant",
-                "content": full_response,
-            })
+            tender_id = uploaded_file.name.replace(".", "_").replace(" ", "_").lower()
+            
+            st.session_state.rag.ingest_document(extraction_result, tender_id)
 
             st.session_state.tender_loaded = True
             st.session_state.tender_filename = uploaded_file.name
+            st.session_state.tender_id = tender_id
+            st.session_state.extraction_result = extraction_result
+
+        except Exception as e:
+            st.error(f"Vector store error: {e}")
+            return
+
+    # === 3. Structured Analysis using Analyzer ===
+    with st.spinner("Generating structured tender analysis..."):
+        try:
+            from core.analyzer import TenderAnalyzer
+            from langchain_core.messages import AIMessage
+
+            # Initialize analyzer
+            analyzer = TenderAnalyzer(st.session_state.rag)
+
+            # Generate full report
+            full_report = analyzer.generate_full_analysis()
+
+            # Reset conversation
+            st.session_state.messages = [SystemMessage(content=SYSTEM_PROMPT)]
+            st.session_state.chat_history = []
+
+            # Store the analysis
+            st.session_state.messages.append(AIMessage(content=full_report))
+            st.session_state.chat_history.append({
+                "role": "assistant",
+                "content": full_report,
+            })
+
+            st.success("✅ Initial structured analysis complete!")
             st.rerun()
 
         except Exception as e:
-            st.error(f"Failed to process PDF: {e}")
-
+            st.error(f"Analysis generation failed: {e}")
 
 def reset_app():
-    from ui.styles import SYSTEM_PROMPT
-    from langchain_core.messages import SystemMessage
-
-    st.session_state.messages = [SystemMessage(content=SYSTEM_PROMPT)]
-    st.session_state.chat_history = []
-    st.session_state.tender_loaded = False
-    st.session_state.tender_filename = None
-    st.rerun()
-
-
-# Cache LLM
-@st.cache_resource
-def get_llm():
-    from langchain_groq import ChatGroq
-    return ChatGroq(model=MODEL, temperature=TEMP)
+    reset_session()

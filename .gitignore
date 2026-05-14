@@ -44,6 +44,7 @@ htmlcov/
 *.sqlite3
 chroma/
 faiss_index/
+vectorstore/
 
 # Temporary uploaded PDFs
 uploads/
