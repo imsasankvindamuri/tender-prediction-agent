@@ -1,6 +1,6 @@
 # Tender Prediction Agent
 
-A lightweight AI-powered tender analysis system built with Python, Streamlit, and LLMs.
+An AI-powered tender analysis system built with Python, Streamlit, and LLMs.
 
 This project is currently a Proof of Concept (PoC) focused on:
 
