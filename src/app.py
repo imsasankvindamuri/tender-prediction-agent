@@ -12,7 +12,6 @@ def main():
 
     # Initialize session state (moved here for clarity)
     init_session_state()
-
     # Render UI
     render_sidebar()
     render_chat_area()

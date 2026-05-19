@@ -1,4 +1,5 @@
 # src/core/extract.py
+import streamlit as st
 from pathlib import Path
 from typing import Dict, Any, Union, BinaryIO
 import tempfile
@@ -13,77 +14,146 @@ PdfInput = Union[str, Path, bytes, UploadedFile, BinaryIO]
 
 def extract_tender_document(pdf_input: PdfInput) -> Dict[str, Any]:
     """
-    Robust extraction that handles Streamlit UploadedFile,
-    bytes, file-like objects, or filesystem paths.
+    Extract tender document with page-aware text preservation.
     """
 
     temp_path = None
 
     try:
-        # UploadedFile
+        # ==========================================
+        # Handle different input types
+        # ==========================================
+
         if isinstance(pdf_input, UploadedFile):
             pdf_input.seek(0)
             pdf_bytes = pdf_input.read()
 
-        # Raw bytes
         elif isinstance(pdf_input, bytes):
             pdf_bytes = pdf_input
 
-        # File path
         elif isinstance(pdf_input, (str, Path)):
             pdf_path = Path(pdf_input)
             pdf_bytes = pdf_path.read_bytes()
 
-        # Generic file-like object
         else:
             pdf_input.seek(0)
             pdf_bytes = pdf_input.read()
 
-        # Save to temporary file for Docling
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        # ==========================================
+        # Save temporary PDF for Docling
+        # ==========================================
+
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".pdf"
+        ) as tmp:
             tmp.write(pdf_bytes)
             temp_path = tmp.name
 
-        # Run Docling
+        # ==========================================
+        # Run Docling conversion
+        # ==========================================
+
         converter = DocumentConverter()
         result = converter.convert(temp_path)
+
         doc = result.document
+
+        # ==========================================
+        # Full markdown export
+        # ==========================================
 
         full_markdown = doc.export_to_markdown()
 
-        # Tables
+        # ==========================================
+        # TABLE EXTRACTION
+        # ==========================================
+
+
         tables = []
 
         for i, table in enumerate(doc.tables):
+
             try:
                 df = table.export_to_dataframe()
 
+                page_no = None
+
+                if hasattr(table, "prov") and table.prov:
+
+                    for item in table.prov:
+
+                        if hasattr(item, "page_no"):
+                            page_no = item.page_no
+                            break
+
                 tables.append({
                     "table_index": i,
-                    "page": getattr(table, "prov", [{}])[0].get("page_no", None),
-                    "caption": str(getattr(table, "captions", "")),
+                    "page": page_no,
+                    "caption": str(
+                        getattr(table, "caption", "")
+                    ),
                     "data": df.to_dict(orient="records"),
                     "markdown": df.to_markdown(index=False)
                 })
 
-            except Exception:
+            except Exception as e:
+
                 tables.append({
                     "table_index": i,
-                    "error": "Table parsing failed"
+                    "error": f"Table parsing failed: {str(e)[:100]}"
                 })
+
+        # ==========================================
+        # HIERARCHICAL CHUNKING (New)
+        # ==========================================
+
+        from docling_core.transforms.chunker.hierarchical_chunker import HierarchicalChunker
+        chunker = HierarchicalChunker()
+        doc_chunks = []
+        
+        for chunk in chunker.chunk(doc):
+            # Extract page number from providence if available
+            page_no = "N/A"
+            if chunk.meta.doc_items:
+                # Get page number from the first item's provenance
+                first_item = chunk.meta.doc_items[0]
+                if hasattr(first_item, "prov") and first_item.prov:
+                    page_no = first_item.prov[0].page_no
+                elif hasattr(first_item, "page_no"):
+                    page_no = first_item.page_no
+
+            doc_chunks.append({
+                "text": chunker.contextualize(chunk),
+                "page": page_no,
+                "metadata": {
+                    "page": page_no,
+                    "headings": chunk.meta.headings if hasattr(chunk.meta, "headings") else []
+                }
+            })
+
+        # ==========================================
+        # Return structured extraction
+        # ==========================================
 
         return {
             "success": True,
             "full_markdown": full_markdown,
+            "doc_chunks": doc_chunks,
             "tables": tables,
             "metadata": {
-                "filename": getattr(pdf_input, "name", "unknown.pdf"),
+                "filename": getattr(
+                    pdf_input,
+                    "name",
+                    "unknown.pdf"
+                ),
                 "page_count": len(doc.pages),
                 "table_count": len(tables),
             }
         }
 
     except Exception as e:
+
         return {
             "success": False,
             "error": str(e),
@@ -93,8 +163,11 @@ def extract_tender_document(pdf_input: PdfInput) -> Dict[str, Any]:
         }
 
     finally:
+
         if temp_path and os.path.exists(temp_path):
+
             try:
                 os.unlink(temp_path)
+
             except Exception:
                 pass
